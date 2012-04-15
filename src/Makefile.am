@@ -11,3 +11,8 @@ dvd_archive_LDADD = -L$(libdir) -ldl
 
 dvd_archive_LDFLAGS = -g -O0
 
+EXTRA_DIST = libdvdcss.h \
+	     css.h \
+	     dvdcss.h \
+	     dvd_reader.h \
+	     dvd_udf.h
