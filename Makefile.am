@@ -1,7 +1,7 @@
 include $(top_srcdir)/misc/Makefile.common
 
 
-SUBDIRS = src misc m4
+SUBDIRS = src misc m4 man
 
 EXTRA_DIST = autogen.sh \
 	     AUTHORS \
