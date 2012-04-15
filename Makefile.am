@@ -12,7 +12,6 @@ EXTRA_DIST = autogen.sh \
 	     COPYING \
 	     INSTALL \
 	     install-sh \
-	     libtool \
 	     ltmain.sh \
 	     missing \
 	     README \
