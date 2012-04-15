@@ -22,6 +22,7 @@
  * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  */
 
+#define _LARGEFILE64_SOURCE
 #include <stdio.h>
 #include <stdint.h>
 #include <stdlib.h>
@@ -34,6 +35,7 @@
 #include <sys/stat.h>
 #include <fcntl.h>
 #include <unistd.h>
+#include <string.h>
 
 #include "libdvdcss.h"
 #include "dvd_udf.h"
@@ -55,11 +57,17 @@ static int           (*DVDcss_read)  (struct dvdcss_s *, void *, int, int);
 static char *        (*DVDcss_error) (struct dvdcss_s *);
 
 struct vobs_s {
-	int start;
-	int len;
+	uint32_t start;
+	uint32_t len;
 };
 
+struct segment_s {
+	uint64_t start;
+	uint64_t length;
+	int encrypted;
+};
 
+const char *filename = "t1.img";
 /**
  * Set the level of caching on udf
  * level = 0 (no caching)
@@ -224,11 +232,44 @@ int UDFReadBlocksRaw( struct dvd_reader_s *device, uint32_t lb_number,
 	return ret;
 }
 
-struct segment_s {
-	uint64_t start;
-	uint64_t length;
-	int encrypted;
+/* Used to simulate errors on the DVD */
+/* FIXME: TODO */
+
+
+struct error_s {
+	int sector;
 };
+
+struct error_s errors[10] = {{0x200},{0x0}};
+
+int dvd_position = 0;
+int dvd_seek(struct dvdcss_s *dvdcss, int i_blocks, int i_flags ) {
+	int tmp;
+	tmp = DVDcss_seek(dvdcss, i_blocks, i_flags);
+	dvd_position = i_blocks;
+	return tmp;
+}
+
+int dvd_read(struct dvdcss_s *dvdcss, void *p_buffer, int i_blocks, int i_flags ) {
+	int tmp;
+	int n;
+	tmp = DVDcss_read(dvdcss, p_buffer, i_blocks, i_flags);
+	printf("read tmp=0x%x, dvd_position=0x%x, i_blocks=0x%x\n",
+		tmp, dvd_position, i_blocks);
+	for (n = 0; n < 10; n++) {
+		int err = errors[n].sector;
+		printf("err=0x%x\n", err);
+		if ((err) &&
+			(err >= dvd_position) &&
+			(err <= (dvd_position + i_blocks))) {
+			tmp = err - dvd_position;
+			break;
+		}
+	}	
+	dvd_position += tmp;
+	return tmp;
+}
+
 
 int main() {
 	void *DVDcss_library = NULL;
@@ -239,7 +280,8 @@ int main() {
 	char *volume_id;
 	int partition_start, partition_length;
 	struct segment_s *segments;
-	int n, m;
+	int n;
+	uint64_t m64;
 	int segments_len;
 	char *filename1;
 	char *filename2;
@@ -247,7 +289,7 @@ int main() {
 	int output_file_handle;
 	struct vobs_s *vobs;
 	int vobs_length;
-	int sector;
+	uint32_t sector;
 
 	device = calloc(1, sizeof(struct dvd_reader_s));
 	if (!device) {
@@ -321,9 +363,9 @@ int main() {
 		return 1;
 	}
 	printf("dvdcss_library = %p\n", DVDcss_library);	
-	dev = DVDcss_open("/dev/sr0");
+	dev = DVDcss_open(filename);
 	if (!dev) {
-		printf("Failed to open /dev/sr0\nIs there a DVD in the DVD-ROM drive?\n");
+		printf("Failed to open %s\nIs there a DVD in the DVD-ROM drive?\n", filename);
 		return 1;
 	}
 	printf("dev = %p\n", dev);
@@ -360,6 +402,7 @@ int main() {
 			segments[segments_len].start = vobs[n].start;
 			segments[segments_len].length = vobs[n].len;
 			segments[segments_len].encrypted = DVDCSS_READ_DECRYPT;
+			segments[segments_len].encrypted = 0;
 			segments_len++;
 			sector = vobs[n].start + vobs[n].len;
 		}
@@ -377,32 +420,51 @@ int main() {
 		printf("Open failed with %d\n", output_file_handle);
 		return 1;
 	}
-	for (n=0; n < segments_len; n++) {
+	for (n=0; n < 2; n++) { //segments_len
 		int step;
-		tmp = DVDcss_seek(device->dev, segments[n].start, DVDCSS_SEEK_KEY);
+		int64_t write_step;
+		off64_t offset;
+		uint64_t tmp64;
+		if (segments[n].encrypted) {
+			tmp = dvd_seek(device->dev, segments[n].start, DVDCSS_SEEK_KEY);
+		} else {
+			tmp = dvd_seek(device->dev, segments[n].start, 0);
+		}
 		printf("Seek:%d:0x%"PRIx64":0x%x\n", n, segments[n].start, tmp);
-		m = 0;
+		m64 = 0;
 		step = 0;
-		while (m < segments[n].length) {
-			step = segments[n].length - m;
+		while (m64 < segments[n].length) {
+			step = segments[n].length - m64;
+
 			if (step > 0x200) {
 				step = 0x200;
 			}
-			tmp = DVDcss_read(device->dev, buffer, step, segments[n].encrypted);
+			/* clear it each time round for error case reasons */
+			memset(buffer, 0, step * DVD_VIDEO_LB_LEN);
+			tmp = dvd_read(device->dev, buffer, step, segments[n].encrypted);
+			write_step = step;
 			if (tmp != step) {
-				printf("Read Error:%d:0x%x\n", n, tmp * DVD_VIDEO_LB_LEN);
+				printf("Read Error:%d:0x%x:0x%x\n", n, tmp, step );
 				/* FIXME: TODO: HANDLE ERRORS */
-				return 1;
+				write_step = tmp;
 			}
-			tmp = write(output_file_handle, buffer, step * DVD_VIDEO_LB_LEN);
-			if (tmp != (step * DVD_VIDEO_LB_LEN)) {
+			offset = segments[n].start * DVD_VIDEO_LB_LEN;
+			offset += (m64 * DVD_VIDEO_LB_LEN);
+			//offset += DVD_VIDEO_LB_LEN; // tmp fix for reading from file
+
+			tmp64 = lseek64(output_file_handle, offset, SEEK_SET);
+			printf("output-seek=0x%"PRIx64", tmp=0x%"PRIx64", start = 0x%"PRIx64"\n", offset, tmp64, segments[n].start);
+			tmp = write(output_file_handle, buffer, write_step * DVD_VIDEO_LB_LEN);
+			if (tmp != (write_step * DVD_VIDEO_LB_LEN)) {
 				printf("Write Error:%d:0x%x\n", n, tmp);
 				/* FIXME: TODO: HANDLE ERRORS */
 				return 1;
 			}
-			m += step;
+			m64 += step;
 		}
 	}
+	/* Seek to end of file before close, to prevent truncation */
+	tmp = lseek64(output_file_handle, 0, SEEK_END);
 	tmp = close(output_file_handle);
 
 	return 0;
