@@ -238,9 +238,13 @@ int UDFReadBlocksRaw( struct dvd_reader_s *device, uint32_t lb_number,
 
 struct error_s {
 	int sector;
+	int error;
 };
 
-struct error_s errors[10] = {{0x200},{0x0}};
+struct error_s errors[10] = {
+	{0x200, 0},
+	{0x300, -1}
+};
 
 int dvd_position = 0;
 int dvd_seek(struct dvdcss_s *dvdcss, int i_blocks, int i_flags ) {
@@ -253,21 +257,32 @@ int dvd_seek(struct dvdcss_s *dvdcss, int i_blocks, int i_flags ) {
 int dvd_read(struct dvdcss_s *dvdcss, void *p_buffer, int i_blocks, int i_flags ) {
 	int tmp;
 	int n;
-	tmp = DVDcss_read(dvdcss, p_buffer, i_blocks, i_flags);
+	int iret;
+	iret = DVDcss_read(dvdcss, p_buffer, i_blocks, i_flags);
 	printf("read tmp=0x%x, dvd_position=0x%x, i_blocks=0x%x\n",
-		tmp, dvd_position, i_blocks);
+		iret, dvd_position, i_blocks);
+	tmp = iret;
+#if 1
 	for (n = 0; n < 10; n++) {
 		int err = errors[n].sector;
 		printf("err=0x%x\n", err);
 		if ((err) &&
 			(err >= dvd_position) &&
-			(err <= (dvd_position + i_blocks))) {
-			tmp = err - dvd_position;
+			(err < (dvd_position + i_blocks))) {
+			if (errors[n].error < 0) {
+				iret = errors[n].error;
+				tmp = 0;
+			} else {
+				tmp = err - dvd_position;
+				iret = tmp;
+			}
+			printf("ERROR FORCED\n");
 			break;
-		}
-	}	
+		} 
+	}
+#endif
 	dvd_position += tmp;
-	return tmp;
+	return iret;
 }
 
 
@@ -439,18 +454,34 @@ int main() {
 			if (step > 0x200) {
 				step = 0x200;
 			}
-			/* clear it each time round for error case reasons */
-			memset(buffer, 0, step * DVD_VIDEO_LB_LEN);
-			tmp = dvd_read(device->dev, buffer, step, segments[n].encrypted);
-			write_step = step;
-			if (tmp != step) {
-				printf("Read Error:%d:0x%x:0x%x\n", n, tmp, step );
-				/* FIXME: TODO: HANDLE ERRORS */
-				write_step = tmp;
-			}
 			offset = segments[n].start * DVD_VIDEO_LB_LEN;
 			offset += (m64 * DVD_VIDEO_LB_LEN);
 			//offset += DVD_VIDEO_LB_LEN; // tmp fix for reading from file
+
+			/* clear it each time round for error case reasons */
+			memset(buffer, 0, step * DVD_VIDEO_LB_LEN);
+			tmp = dvd_seek(device->dev, segments[n].start + m64, 0);
+			if (tmp < 0) {  // Error occured
+				/* FIXME: Handle error. It might fail if the destination sector is bad */
+				printf("Input-seek Error:%d:0x%x:0x%"PRIx64"\n", n, tmp, offset );
+				return 1;
+			}
+			
+			tmp = dvd_read(device->dev, buffer, step, segments[n].encrypted);
+			write_step = step;
+			if (tmp <= 0) {  // Error occured
+			/* FIXME: Handle error */
+			/* For now just skip it */
+			/* Perhaps:
+			 *          start reading single sectors until a success again
+			 */
+				memset(buffer, 0, step * DVD_VIDEO_LB_LEN);
+			} else if (tmp != step) {
+				printf("Read Error:%d:0x%x:0x%x\n", n, tmp, step );
+				/* FIXME: TODO: HANDLE ERRORS */
+				write_step = tmp;
+				step = tmp;
+			}
 
 			tmp64 = lseek64(output_file_handle, offset, SEEK_SET);
 			printf("output-seek=0x%"PRIx64", tmp=0x%"PRIx64", start = 0x%"PRIx64"\n", offset, tmp64, segments[n].start);
