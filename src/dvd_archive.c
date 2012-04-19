@@ -262,10 +262,13 @@ int dvd_read(struct dvdcss_s *dvdcss, void *p_buffer, int i_blocks, int i_flags 
 	printf("read tmp=0x%x, dvd_position=0x%x, i_blocks=0x%x\n",
 		iret, dvd_position, i_blocks);
 	tmp = iret;
+	if (tmp < 0) {
+		tmp = 0;
+	}
 #if 1
 	for (n = 0; n < 10; n++) {
 		int err = errors[n].sector;
-		printf("err=0x%x\n", err);
+		//printf("err=0x%x\n", err);
 		if ((err) &&
 			(err >= dvd_position) &&
 			(err < (dvd_position + i_blocks))) {
@@ -305,6 +308,7 @@ int main() {
 	struct vobs_s *vobs;
 	int vobs_length;
 	uint32_t sector;
+	int limp_factor = 0;
 
 	device = calloc(1, sizeof(struct dvd_reader_s));
 	if (!device) {
@@ -435,7 +439,7 @@ int main() {
 		printf("Open failed with %d\n", output_file_handle);
 		return 1;
 	}
-	for (n=0; n < 2; n++) { //segments_len
+	for (n=0; n < segments_len; n++) { //segments_len
 		int step;
 		int64_t write_step;
 		off64_t offset;
@@ -448,11 +452,16 @@ int main() {
 		printf("Seek:%d:0x%"PRIx64":0x%x\n", n, segments[n].start, tmp);
 		m64 = 0;
 		step = 0;
+		limp_factor = 0;
 		while (m64 < segments[n].length) {
 			step = segments[n].length - m64;
 
 			if (step > 0x200) {
 				step = 0x200;
+			}
+			if (limp_factor > 0) {
+				step = 1;
+				limp_factor--;
 			}
 			offset = segments[n].start * DVD_VIDEO_LB_LEN;
 			offset += (m64 * DVD_VIDEO_LB_LEN);
@@ -476,6 +485,11 @@ int main() {
 			 *          start reading single sectors until a success again
 			 */
 				memset(buffer, 0, step * DVD_VIDEO_LB_LEN);
+				printf("Read Error:%d:0x%x:0x%x\n", n, tmp, step );
+				write_step = 1;
+				step = 1;
+				limp_factor = 10;
+				printf("Limping %d\n", limp_factor);
 			} else if (tmp != step) {
 				printf("Read Error:%d:0x%x:0x%x\n", n, tmp, step );
 				/* FIXME: TODO: HANDLE ERRORS */
