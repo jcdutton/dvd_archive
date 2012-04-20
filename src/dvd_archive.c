@@ -67,7 +67,9 @@ struct segment_s {
 	int encrypted;
 };
 
-const char *filename = "t1.img";
+//const char *filename = "t1.img";
+const char *filename = "/dev/sr0";
+
 /**
  * Set the level of caching on udf
  * level = 0 (no caching)
@@ -265,7 +267,7 @@ int dvd_read(struct dvdcss_s *dvdcss, void *p_buffer, int i_blocks, int i_flags 
 	if (tmp < 0) {
 		tmp = 0;
 	}
-#if 1
+#if 0 /* Error simulator */
 	for (n = 0; n < 10; n++) {
 		int err = errors[n].sector;
 		//printf("err=0x%x\n", err);
@@ -421,7 +423,7 @@ int main() {
 			segments[segments_len].start = vobs[n].start;
 			segments[segments_len].length = vobs[n].len;
 			segments[segments_len].encrypted = DVDCSS_READ_DECRYPT;
-			segments[segments_len].encrypted = 0;
+//			segments[segments_len].encrypted = 0;
 			segments_len++;
 			sector = vobs[n].start + vobs[n].len;
 		}
