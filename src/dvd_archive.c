@@ -143,7 +143,7 @@ static int findVOBs( struct dvd_reader_s *dvd, struct vobs_s *vobs, int *vobs_le
 }
 	
 
-
+#if 0
 /* Loop over all titles and call dvdcss_title to crack the keys. */
 static int initAllCSSKeys( struct dvd_reader_s *dvd ) {
 	struct timeval all_s, all_e;
@@ -210,7 +210,7 @@ static int initAllCSSKeys( struct dvd_reader_s *dvd ) {
 
 	return 0;
 }
-
+#endif
 
 /* Internal, but used from dvd_udf.c */
 int UDFReadBlocksRaw( struct dvd_reader_s *device, uint32_t lb_number,
@@ -372,12 +372,20 @@ int main() {
 				"http://www.videolan.org/\n" );
 			dlclose(DVDcss_library);
 			DVDcss_library = NULL;
-		} else if(!DVDcss_open  || !DVDcss_close || !DVDcss_title || !DVDcss_seek
-			|| !DVDcss_read || !DVDcss_error || !DVDcss_version) {
-			fprintf(stderr,  "libdvdread: Missing symbols in %s, "
+		} else if(!DVDcss_open  || !DVDcss_close || !DVDcss_seek
+			|| !DVDcss_read || !DVDcss_error ) {
+			fprintf(stderr,  "dvd_archive: Error loading libdvdcss: Missing symbols in %s, "
 				"this shouldn't happen !\n", CSS_LIB);
+			if (!DVDcss_open) fprintf(stderr, "dvdcss_open missing\n");
+			if (!DVDcss_close) fprintf(stderr, "dvdcss_close missing\n");
+			if (!DVDcss_title) fprintf(stderr, "dvdcss_title missing\n");
+			if (!DVDcss_seek) fprintf(stderr, "dvdcss_seek missing\n");
+			if (!DVDcss_read) fprintf(stderr, "dvdcss_read missing\n");
+			if (!DVDcss_error) fprintf(stderr, "dvdcss_error missing\n");
+			if (!DVDcss_version) fprintf(stderr, "dvdcss_interface_2 missing\n");
 			dlclose(DVDcss_library);
 			DVDcss_library = NULL;
+			return 1;
 		}
 	} else {
 		printf("Failed to find libdvdcss2\nTry install-css.sh\n");
@@ -397,7 +405,7 @@ int main() {
 	tmp = sprintf(filename1,"%s.IMG",volume_id);
 	printf("filename1 = %s, length=%d\n", filename1, tmp);
 	
-	tmp = initAllCSSKeys(device);
+//	tmp = initAllCSSKeys(device);
 
 	tmp = findVOBs(device, vobs, &vobs_length);
 	printf("FindVOBs len = %d\n", vobs_length);
